@@ -1,22 +1,29 @@
-buildscript {
-    repositories {
-        maven { url "http://platform-acceleration-lab-maven.s3.amazonaws.com" }
-        jcenter()
-    }
+plugins {
+    id 'org.springframework.boot' version '2.2.2.RELEASE'
+    id 'io.spring.dependency-management' version '1.0.8.RELEASE'
+    id 'java'
+}
 
-    dependencies {
-        classpath "io.pivotal.pal.assignments:assignments-plugin:4.5.2"
+bootRun.environment([
+        "WELCOME_MESSAGE": "hello from bootRun",
+])
+
+test.environment([
+        "WELCOME_MESSAGE": "Hello from test",
+])
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation('org.springframework.boot:spring-boot-starter-test') {
+        exclude group: 'org.junit.vintage', module: 'junit-vintage-engine'
     }
 }
 
-apply plugin: "io.pivotal.pal.assignments.plugin"
 
-assignments {
-    apiUrl = "https://cognizant-waveland.education.pivotal.io/"
-    emails = [
-            "sandeep.borhade@cognizant.com"
-    ]
-    cohortIdentifier = "pal-training-program-2020--architect-batch-1"
+test {
+    useJUnitPlatform()
 }
-
-defaultTasks "tasks"
