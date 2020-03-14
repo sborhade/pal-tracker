@@ -15,4 +15,4 @@ jobs:
       - name: bash provide rights
         run: /bin/bash/ chmod +x gradlew
       - name: Build with Gradle
-        run: ./gradlew build
+        run: /bin/bash ./gradlew build
