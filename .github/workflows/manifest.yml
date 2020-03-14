@@ -1,8 +1,0 @@
-applications:
-- name: pal-tracker
-  path: build/libs/pal-tracker.jar
-  routes:
-  - route: https://pal-tracker-boring-leopard-un.cfapps.io/
-  env:
-    WELCOME_MESSAGE: Hello from the review environment
-    JBP_CONFIG_OPEN_JDK_JRE: '{ jre: { version: 11.+ } }'

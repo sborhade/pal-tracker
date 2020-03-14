@@ -1,0 +1,187 @@
+From a26381ab4a9ee94b07289eda90ae4a2db8868aa9 Mon Sep 17 00:00:00 2001
+From: Tyson Gern <tgern@pivotal.io>
+Date: Wed, 26 Jul 2017 12:32:27 -0600
+Subject: [PATCH 14/16] Add actuator endpoints
+
+---
+ build.gradle                                       |  7 ++++++
+ .../pivotal/pal/tracker/TimeEntryController.java   | 19 +++++++++++++-
+ .../pal/tracker/TimeEntryHealthIndicator.java      | 29 ++++++++++++++++++++++
+ .../pal/tracker/TimeEntryControllerTest.java       |  8 +++++-
+ 4 files changed, 61 insertions(+), 2 deletions(-)
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/TimeEntryHealthIndicator.java
+
+diff --git a/build.gradle b/build.gradle
+index e14e648..cbd3f8e 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -14,22 +14,29 @@ dependencies {
+     compile("org.springframework.boot:spring-boot-starter-web")
+     compile("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.9.1")
+     compile("org.springframework.boot:spring-boot-starter-jdbc")
++    compile("org.springframework.boot:spring-boot-starter-actuator")
+ 
+     compile("mysql:mysql-connector-java:6.0.6")
+ 
+     testCompile("org.springframework.boot:spring-boot-starter-test")
+ }
+ 
++springBoot {
++    buildInfo()
++}
++
+ def developmentDbUrl = "jdbc:mysql://localhost:3306/tracker_dev?user=tracker&useSSL=false&useTimezone=true&serverTimezone=UTC&useLegacyDatetimeCode=false"
+ bootRun.environment([
+     "WELCOME_MESSAGE": "hello",
+     "SPRING_DATASOURCE_URL": developmentDbUrl,
++    "MANAGEMENT_SECURITY_ENABLED": false,
+ ])
+ 
+ def testDbUrl = "jdbc:mysql://localhost:3306/tracker_test?user=tracker&useSSL=false&useTimezone=true&serverTimezone=UTC&useLegacyDatetimeCode=false"
+ test.environment([
+     "WELCOME_MESSAGE": "Hello from test",
+     "SPRING_DATASOURCE_URL": testDbUrl,
++    "MANAGEMENT_SECURITY_ENABLED": false,
+ ])
+ 
+ flyway {
+diff --git a/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java b/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
+index a9b854f..a1d268c 100644
+--- a/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
++++ b/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
+@@ -1,5 +1,7 @@
+ package io.pivotal.pal.tracker;
+ 
++import org.springframework.boot.actuate.metrics.CounterService;
++import org.springframework.boot.actuate.metrics.GaugeService;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.web.bind.annotation.*;
+@@ -10,15 +12,25 @@ import java.util.List;
+ @RequestMapping("/time-entries")
+ public class TimeEntryController {
+ 
++    private final CounterService counter;
++    private final GaugeService gauge;
+     private TimeEntryRepository timeEntriesRepo;
+ 
+-    public TimeEntryController(TimeEntryRepository timeEntriesRepo) {
++    public TimeEntryController(
++        TimeEntryRepository timeEntriesRepo,
++        CounterService counter,
++        GaugeService gauge
++    ) {
+         this.timeEntriesRepo = timeEntriesRepo;
++        this.counter = counter;
++        this.gauge = gauge;
+     }
+ 
+     @PostMapping
+     public ResponseEntity<TimeEntry> create(@RequestBody TimeEntry timeEntry) {
+         TimeEntry createdTimeEntry = timeEntriesRepo.create(timeEntry);
++        counter.increment("TimeEntry.created");
++        gauge.submit("timeEntries.count", timeEntriesRepo.list().size());
+ 
+         return new ResponseEntity<>(createdTimeEntry, HttpStatus.CREATED);
+     }
+@@ -27,6 +39,7 @@ public class TimeEntryController {
+     public ResponseEntity<TimeEntry> read(@PathVariable Long id) {
+         TimeEntry timeEntry = timeEntriesRepo.find(id);
+         if (timeEntry != null) {
++            counter.increment("TimeEntry.read");
+             return new ResponseEntity<>(timeEntry, HttpStatus.OK);
+         } else {
+             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+@@ -35,6 +48,7 @@ public class TimeEntryController {
+ 
+     @GetMapping
+     public ResponseEntity<List<TimeEntry>> list() {
++        counter.increment("TimeEntry.listed");
+         return new ResponseEntity<>(timeEntriesRepo.list(), HttpStatus.OK);
+     }
+ 
+@@ -42,6 +56,7 @@ public class TimeEntryController {
+     public ResponseEntity<TimeEntry> update(@PathVariable Long id, @RequestBody TimeEntry timeEntry) {
+         TimeEntry updatedTimeEntry = timeEntriesRepo.update(id, timeEntry);
+         if (updatedTimeEntry != null) {
++            counter.increment("TimeEntry.updated");
+             return new ResponseEntity<>(updatedTimeEntry, HttpStatus.OK);
+         } else {
+             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+@@ -51,6 +66,8 @@ public class TimeEntryController {
+     @DeleteMapping("{id}")
+     public ResponseEntity<TimeEntry> delete(@PathVariable Long id) {
+         timeEntriesRepo.delete(id);
++        counter.increment("TimeEntry.deleted");
++        gauge.submit("timeEntries.count", timeEntriesRepo.list().size());
+ 
+         return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+     }
+diff --git a/src/main/java/io/pivotal/pal/tracker/TimeEntryHealthIndicator.java b/src/main/java/io/pivotal/pal/tracker/TimeEntryHealthIndicator.java
+new file mode 100644
+index 0000000..d5f9178
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/TimeEntryHealthIndicator.java
+@@ -0,0 +1,29 @@
++package io.pivotal.pal.tracker;
++
++import org.springframework.boot.actuate.health.Health;
++import org.springframework.boot.actuate.health.HealthIndicator;
++import org.springframework.stereotype.Component;
++
++@Component
++public class TimeEntryHealthIndicator implements HealthIndicator {
++
++    private static final int MAX_TIME_ENTRIES = 5;
++    private final TimeEntryRepository timeEntryRepo;
++
++    public TimeEntryHealthIndicator(TimeEntryRepository timeEntryRepo) {
++        this.timeEntryRepo = timeEntryRepo;
++    }
++
++    @Override
++    public Health health() {
++        Health.Builder builder = new Health.Builder();
++
++        if(timeEntryRepo.list().size() < MAX_TIME_ENTRIES) {
++            builder.up();
++        } else {
++            builder.down();
++        }
++
++        return builder.build();
++    }
++}
+diff --git a/src/test/java/test/pivotal/pal/tracker/TimeEntryControllerTest.java b/src/test/java/test/pivotal/pal/tracker/TimeEntryControllerTest.java
+index d771676..7e18279 100644
+--- a/src/test/java/test/pivotal/pal/tracker/TimeEntryControllerTest.java
++++ b/src/test/java/test/pivotal/pal/tracker/TimeEntryControllerTest.java
+@@ -5,6 +5,8 @@ import io.pivotal.pal.tracker.TimeEntryController;
+ import io.pivotal.pal.tracker.TimeEntryRepository;
+ import org.junit.Before;
+ import org.junit.Test;
++import org.springframework.boot.actuate.metrics.CounterService;
++import org.springframework.boot.actuate.metrics.GaugeService;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseEntity;
+ 
+@@ -20,11 +22,15 @@ import static org.mockito.Mockito.*;
+ public class TimeEntryControllerTest {
+     private TimeEntryRepository timeEntryRepository;
+     private TimeEntryController controller;
++    private CounterService counterService;
++    private GaugeService gaugeService;
+ 
+     @Before
+     public void setUp() throws Exception {
+         timeEntryRepository = mock(TimeEntryRepository.class);
+-        controller = new TimeEntryController(timeEntryRepository);
++        counterService = mock(CounterService.class);
++        gaugeService = mock(GaugeService.class);
++        controller = new TimeEntryController(timeEntryRepository, counterService, gaugeService);
+     }
+ 
+     @Test
+-- 
+2.12.3
+

@@ -1,0 +1,126 @@
+From b78b30a28d9b198359ba1e46e1aaf935a3fc14b3 Mon Sep 17 00:00:00 2001
+From: Tyson Gern <tgern@pivotal.io>
+Date: Thu, 20 Jul 2017 10:02:55 -0600
+Subject: [PATCH 04/16] Add manifest file for deployment to PCF
+
+---
+ build.gradle                                       | 10 ++++++
+ manifest.yml                                       |  7 ++++
+ .../java/io/pivotal/pal/tracker/EnvController.java | 41 ++++++++++++++++++++++
+ .../io/pivotal/pal/tracker/WelcomeController.java  | 11 +++++-
+ 4 files changed, 68 insertions(+), 1 deletion(-)
+ create mode 100644 manifest.yml
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/EnvController.java
+
+diff --git a/build.gradle b/build.gradle
+index bf82fb8..b24dc23 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -9,4 +9,14 @@ repositories {
+ 
+ dependencies {
+     compile("org.springframework.boot:spring-boot-starter-web")
++
++    testCompile("org.springframework.boot:spring-boot-starter-test")
+ }
++
++bootRun.environment([
++    "WELCOME_MESSAGE": "hello",
++])
++
++test.environment([
++    "WELCOME_MESSAGE": "Hello from test",
++])
+diff --git a/manifest.yml b/manifest.yml
+new file mode 100644
+index 0000000..7f06f91
+--- /dev/null
++++ b/manifest.yml
+@@ -0,0 +1,7 @@
++---
++applications:
++- name: pal-tracker
++  path: build/libs/pal-tracker.jar
++  random-route: true
++  env:
++    WELCOME_MESSAGE: Hello from Cloud Foundry
+\ No newline at end of file
+diff --git a/src/main/java/io/pivotal/pal/tracker/EnvController.java b/src/main/java/io/pivotal/pal/tracker/EnvController.java
+new file mode 100644
+index 0000000..985368b
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/EnvController.java
+@@ -0,0 +1,41 @@
++package io.pivotal.pal.tracker;
++
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import java.util.HashMap;
++import java.util.Map;
++
++@RestController
++public class EnvController {
++
++    private final String port;
++    private final String memoryLimit;
++    private final String cfInstanceIndex;
++    private final String cfInstanceAddress;
++
++    public EnvController(
++        @Value("${PORT:NOT SET}") String port,
++        @Value("${MEMORY_LIMIT:NOT SET}") String memoryLimit,
++        @Value("${CF_INSTANCE_INDEX:NOT SET}") String cfInstanceIndex,
++        @Value("${CF_INSTANCE_ADDR:NOT SET}") String cfInstanceAddress
++    ) {
++        this.port = port;
++        this.memoryLimit = memoryLimit;
++        this.cfInstanceIndex = cfInstanceIndex;
++        this.cfInstanceAddress = cfInstanceAddress;
++    }
++
++    @GetMapping("/env")
++    public Map<String, String> getEnv() {
++        Map<String, String> env = new HashMap<>();
++
++        env.put("PORT", port);
++        env.put("MEMORY_LIMIT", memoryLimit);
++        env.put("CF_INSTANCE_INDEX", cfInstanceIndex);
++        env.put("CF_INSTANCE_ADDR", cfInstanceAddress);
++
++        return env;
++    }
++}
+\ No newline at end of file
+diff --git a/src/main/java/io/pivotal/pal/tracker/WelcomeController.java b/src/main/java/io/pivotal/pal/tracker/WelcomeController.java
+index 4670637..8f36bc2 100644
+--- a/src/main/java/io/pivotal/pal/tracker/WelcomeController.java
++++ b/src/main/java/io/pivotal/pal/tracker/WelcomeController.java
+@@ -1,13 +1,22 @@
+ package io.pivotal.pal.tracker;
+ 
++import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.RestController;
+ 
+ @RestController
+ public class WelcomeController {
+ 
++    private String welcomeMessage;
++
++    public WelcomeController(
++        @Value("${welcome_message}") String welcomeMessage
++    ) {
++        this.welcomeMessage = welcomeMessage;
++    }
++
+     @GetMapping("/")
+     public String sayHello() {
+-        return "hello";
++        return welcomeMessage;
+     }
+ }
+-- 
+2.12.3
+

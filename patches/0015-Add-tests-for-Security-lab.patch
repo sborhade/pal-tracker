@@ -1,0 +1,71 @@
+From ae75ce11c15edaeb61d1e37b4e3295208d3ed5ac Mon Sep 17 00:00:00 2001
+From: Tyson Gern <tgern@pivotal.io>
+Date: Wed, 26 Jul 2017 12:50:47 -0600
+Subject: [PATCH 15/16] Add tests for Security lab
+
+---
+ .../pivotal/pal/trackerapi/SecurityApiTest.java    | 52 ++++++++++++++++++++++
+ 1 file changed, 52 insertions(+)
+ create mode 100644 src/test/java/test/pivotal/pal/trackerapi/SecurityApiTest.java
+
+diff --git a/src/test/java/test/pivotal/pal/trackerapi/SecurityApiTest.java b/src/test/java/test/pivotal/pal/trackerapi/SecurityApiTest.java
+new file mode 100644
+index 0000000..7209999
+--- /dev/null
++++ b/src/test/java/test/pivotal/pal/trackerapi/SecurityApiTest.java
+@@ -0,0 +1,52 @@
++package test.pivotal.pal.trackerapi;
++
++import io.pivotal.pal.tracker.PalTrackerApplication;
++import org.junit.Before;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.context.embedded.LocalServerPort;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.boot.test.web.client.TestRestTemplate;
++import org.springframework.boot.web.client.RestTemplateBuilder;
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++import org.springframework.test.context.junit4.SpringRunner;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
++
++@RunWith(SpringRunner.class)
++@SpringBootTest(classes = PalTrackerApplication.class, webEnvironment = RANDOM_PORT)
++public class SecurityApiTest {
++
++    @LocalServerPort
++    private String port;
++    private TestRestTemplate authorizedRestTemplate;
++
++    @Autowired
++    private TestRestTemplate unAuthorizedRestTemplate;
++
++    @Before
++    public void setUp() throws Exception {
++        RestTemplateBuilder builder = new RestTemplateBuilder()
++            .rootUri("http://localhost:" + port)
++            .basicAuthorization("user", "password");
++
++        authorizedRestTemplate = new TestRestTemplate(builder);
++    }
++
++    @Test
++    public void unauthorizedTest() {
++        ResponseEntity<String> response = this.unAuthorizedRestTemplate.getForEntity("/", String.class);
++
++        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
++    }
++
++    @Test
++    public void authorizedTest() {
++        ResponseEntity<String> response = this.authorizedRestTemplate.getForEntity("/", String.class);
++
++        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
++    }
++}
+-- 
+2.12.3
+

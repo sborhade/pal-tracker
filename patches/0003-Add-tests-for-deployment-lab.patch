@@ -1,0 +1,105 @@
+From e246778801b23120d90f4c5ac73eb0ec26b79ce4 Mon Sep 17 00:00:00 2001
+From: Tyson Gern <tgern@pivotal.io>
+Date: Thu, 20 Jul 2017 13:56:50 -0600
+Subject: [PATCH 03/16] Add tests for deployment lab
+
+---
+ .../pivotal/pal/tracker/EnvControllerTest.java     | 28 ++++++++++++++++++++++
+ .../pivotal/pal/tracker/WelcomeControllerTest.java | 16 +++++++++++++
+ .../pivotal/pal/trackerapi/WelcomeApiTest.java     | 26 ++++++++++++++++++++
+ 3 files changed, 70 insertions(+)
+ create mode 100644 src/test/java/test/pivotal/pal/tracker/EnvControllerTest.java
+ create mode 100644 src/test/java/test/pivotal/pal/tracker/WelcomeControllerTest.java
+ create mode 100644 src/test/java/test/pivotal/pal/trackerapi/WelcomeApiTest.java
+
+diff --git a/src/test/java/test/pivotal/pal/tracker/EnvControllerTest.java b/src/test/java/test/pivotal/pal/tracker/EnvControllerTest.java
+new file mode 100644
+index 0000000..fda0f0f
+--- /dev/null
++++ b/src/test/java/test/pivotal/pal/tracker/EnvControllerTest.java
+@@ -0,0 +1,28 @@
++package test.pivotal.pal.tracker;
++
++import org.junit.Test;
++
++import java.util.Map;
++import io.pivotal.pal.tracker.EnvController;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++public class EnvControllerTest {
++    @Test
++    public void getEnv() throws Exception {
++        EnvController controller = new EnvController(
++            "8675",
++            "12G",
++            "34",
++            "123.sesame.street"
++        );
++
++        Map<String, String> env = controller.getEnv();
++
++        assertThat(env.get("PORT")).isEqualTo("8675");
++        assertThat(env.get("MEMORY_LIMIT")).isEqualTo("12G");
++        assertThat(env.get("CF_INSTANCE_INDEX")).isEqualTo("34");
++        assertThat(env.get("CF_INSTANCE_ADDR")).isEqualTo("123.sesame.street");
++    }
++
++}
+diff --git a/src/test/java/test/pivotal/pal/tracker/WelcomeControllerTest.java b/src/test/java/test/pivotal/pal/tracker/WelcomeControllerTest.java
+new file mode 100644
+index 0000000..bfa8271
+--- /dev/null
++++ b/src/test/java/test/pivotal/pal/tracker/WelcomeControllerTest.java
+@@ -0,0 +1,16 @@
++package test.pivotal.pal.tracker;
++
++import io.pivotal.pal.tracker.WelcomeController;
++import org.junit.Test;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++public class WelcomeControllerTest {
++
++    @Test
++    public void itSaysHello() throws Exception {
++        WelcomeController controller = new WelcomeController("A welcome message");
++
++        assertThat(controller.sayHello()).isEqualTo("A welcome message");
++    }
++}
+diff --git a/src/test/java/test/pivotal/pal/trackerapi/WelcomeApiTest.java b/src/test/java/test/pivotal/pal/trackerapi/WelcomeApiTest.java
+new file mode 100644
+index 0000000..cc7091e
+--- /dev/null
++++ b/src/test/java/test/pivotal/pal/trackerapi/WelcomeApiTest.java
+@@ -0,0 +1,26 @@
++package test.pivotal.pal.trackerapi;
++
++import io.pivotal.pal.tracker.PalTrackerApplication;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.boot.test.web.client.TestRestTemplate;
++import org.springframework.test.context.junit4.SpringRunner;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
++
++@RunWith(SpringRunner.class)
++@SpringBootTest(classes = PalTrackerApplication.class, webEnvironment = RANDOM_PORT)
++public class WelcomeApiTest {
++
++    @Autowired
++    private TestRestTemplate restTemplate;
++
++    @Test
++    public void exampleTest() {
++        String body = this.restTemplate.getForObject("/", String.class);
++        assertThat(body).isEqualTo("Hello from test");
++    }
++}
+-- 
+2.12.3
+

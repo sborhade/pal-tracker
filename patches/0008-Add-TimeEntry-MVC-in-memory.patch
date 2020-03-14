@@ -1,0 +1,304 @@
+From 8735809b5e5b7b5bbd86ab5088759f21f0ea544a Mon Sep 17 00:00:00 2001
+From: Mike Gehard <mike.gehard@gmail.com>
+Date: Tue, 3 Oct 2017 16:41:11 -0400
+Subject: [PATCH 08/16] Add TimeEntry MVC in memory
+
+---
+ build.gradle                                       |  1 +
+ .../pal/tracker/InMemoryTimeEntryRepository.java   | 54 +++++++++++++
+ .../pivotal/pal/tracker/PalTrackerApplication.java | 20 +++++
+ .../java/io/pivotal/pal/tracker/TimeEntry.java     | 88 ++++++++++++++++++++++
+ .../pivotal/pal/tracker/TimeEntryController.java   | 57 ++++++++++++++
+ .../pivotal/pal/tracker/TimeEntryRepository.java   | 11 +++
+ 6 files changed, 231 insertions(+)
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/InMemoryTimeEntryRepository.java
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/TimeEntry.java
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/TimeEntryRepository.java
+
+diff --git a/build.gradle b/build.gradle
+index b24dc23..8231572 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -9,6 +9,7 @@ repositories {
+ 
+ dependencies {
+     compile("org.springframework.boot:spring-boot-starter-web")
++    compile("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.9.1")
+ 
+     testCompile("org.springframework.boot:spring-boot-starter-test")
+ }
+diff --git a/src/main/java/io/pivotal/pal/tracker/InMemoryTimeEntryRepository.java b/src/main/java/io/pivotal/pal/tracker/InMemoryTimeEntryRepository.java
+new file mode 100644
+index 0000000..af6e49f
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/InMemoryTimeEntryRepository.java
+@@ -0,0 +1,54 @@
++package io.pivotal.pal.tracker;
++
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++
++public class InMemoryTimeEntryRepository implements TimeEntryRepository {
++    private HashMap<Long, TimeEntry> timeEntries = new HashMap<>();
++
++    @Override
++    public TimeEntry create(TimeEntry timeEntry) {
++        Long id = timeEntries.size() + 1L;
++        TimeEntry newTimeEntry = new TimeEntry(
++            id,
++            timeEntry.getProjectId(),
++            timeEntry.getUserId(),
++            timeEntry.getDate(),
++            timeEntry.getHours()
++        );
++
++        timeEntries.put(id, newTimeEntry);
++        return newTimeEntry;
++    }
++
++    @Override
++    public TimeEntry find(Long id) {
++        return timeEntries.get(id);
++    }
++
++    @Override
++    public List<TimeEntry> list() {
++        return new ArrayList<>(timeEntries.values());
++    }
++
++    @Override
++    public TimeEntry update(Long id, TimeEntry timeEntry) {
++        TimeEntry updatedEntry = new TimeEntry(
++            id,
++            timeEntry.getProjectId(),
++            timeEntry.getUserId(),
++            timeEntry.getDate(),
++            timeEntry.getHours()
++        );
++
++        timeEntries.replace(id, updatedEntry);
++        return updatedEntry;
++    }
++
++    @Override
++    public void delete(Long id) {
++        timeEntries.remove(id);
++    }
++}
++
+diff --git a/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java b/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
+index e33c352..39c559a 100644
+--- a/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
++++ b/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
+@@ -1,7 +1,13 @@
+ package io.pivotal.pal.tracker;
+ 
++import com.fasterxml.jackson.annotation.JsonInclude;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.SerializationFeature;
++import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+ import org.springframework.boot.SpringApplication;
+ import org.springframework.boot.autoconfigure.SpringBootApplication;
++import org.springframework.context.annotation.Bean;
++import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+ 
+ @SpringBootApplication
+ public class PalTrackerApplication {
+@@ -9,4 +15,18 @@ public class PalTrackerApplication {
+     public static void main(String[] args) {
+         SpringApplication.run(PalTrackerApplication.class, args);
+     }
++
++    @Bean
++    TimeEntryRepository timeEntryRepository() {
++        return new InMemoryTimeEntryRepository();
++    }
++
++    @Bean
++    public ObjectMapper jsonObjectMapper() {
++        return Jackson2ObjectMapperBuilder.json()
++                .serializationInclusion(JsonInclude.Include.NON_NULL) // Don’t include null values
++                .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS) //ISODate
++                .modules(new JavaTimeModule())
++                .build();
++    }
+ }
+diff --git a/src/main/java/io/pivotal/pal/tracker/TimeEntry.java b/src/main/java/io/pivotal/pal/tracker/TimeEntry.java
+new file mode 100644
+index 0000000..ead648f
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/TimeEntry.java
+@@ -0,0 +1,88 @@
++package io.pivotal.pal.tracker;
++
++import java.time.LocalDate;
++
++public class TimeEntry {
++    private long id;
++    private long projectId;
++    private long userId;
++    private LocalDate date;
++    private int hours;
++
++    public TimeEntry() {
++    }
++
++    public TimeEntry(long projectId, long userId, LocalDate date, int hours) {
++        this.projectId = projectId;
++        this.userId = userId;
++        this.date = date;
++        this.hours = hours;
++    }
++
++    public TimeEntry(long id, long projectId, long userId, LocalDate date, int hours) {
++        this.id = id;
++        this.projectId = projectId;
++        this.userId = userId;
++        this.date = date;
++        this.hours = hours;
++    }
++
++    public long getId() {
++        return id;
++    }
++
++    public void setId(long id) {
++        this.id = id;
++    }
++
++    public long getProjectId() {
++        return projectId;
++    }
++
++    public long getUserId() {
++        return userId;
++    }
++
++    public LocalDate getDate() {
++        return date;
++    }
++
++    public int getHours() {
++        return hours;
++    }
++
++    @Override
++    public boolean equals(Object o) {
++        if (this == o) return true;
++        if (o == null || getClass() != o.getClass()) return false;
++
++        TimeEntry timeEntry = (TimeEntry) o;
++
++        if (id != timeEntry.id) return false;
++        if (projectId != timeEntry.projectId) return false;
++        if (userId != timeEntry.userId) return false;
++        if (hours != timeEntry.hours) return false;
++        return date != null ? date.equals(timeEntry.date) : timeEntry.date == null;
++    }
++
++    @Override
++    public int hashCode() {
++        int result = (int) (id ^ (id >>> 32));
++        result = 31 * result + (int) (projectId ^ (projectId >>> 32));
++        result = 31 * result + (int) (userId ^ (userId >>> 32));
++        result = 31 * result + (date != null ? date.hashCode() : 0);
++        result = 31 * result + hours;
++        return result;
++    }
++
++    @Override
++    public String toString() {
++        return "TimeEntry{" +
++            "id=" + id +
++            ", projectId=" + projectId +
++            ", userId=" + userId +
++            ", date='" + date + '\'' +
++            ", hours=" + hours +
++            '}';
++    }
++}
+diff --git a/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java b/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
+new file mode 100644
+index 0000000..a9b854f
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/TimeEntryController.java
+@@ -0,0 +1,57 @@
++package io.pivotal.pal.tracker;
++
++import org.springframework.http.HttpStatus;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.*;
++
++import java.util.List;
++
++@RestController
++@RequestMapping("/time-entries")
++public class TimeEntryController {
++
++    private TimeEntryRepository timeEntriesRepo;
++
++    public TimeEntryController(TimeEntryRepository timeEntriesRepo) {
++        this.timeEntriesRepo = timeEntriesRepo;
++    }
++
++    @PostMapping
++    public ResponseEntity<TimeEntry> create(@RequestBody TimeEntry timeEntry) {
++        TimeEntry createdTimeEntry = timeEntriesRepo.create(timeEntry);
++
++        return new ResponseEntity<>(createdTimeEntry, HttpStatus.CREATED);
++    }
++
++    @GetMapping("{id}")
++    public ResponseEntity<TimeEntry> read(@PathVariable Long id) {
++        TimeEntry timeEntry = timeEntriesRepo.find(id);
++        if (timeEntry != null) {
++            return new ResponseEntity<>(timeEntry, HttpStatus.OK);
++        } else {
++            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
++        }
++    }
++
++    @GetMapping
++    public ResponseEntity<List<TimeEntry>> list() {
++        return new ResponseEntity<>(timeEntriesRepo.list(), HttpStatus.OK);
++    }
++
++    @PutMapping("{id}")
++    public ResponseEntity<TimeEntry> update(@PathVariable Long id, @RequestBody TimeEntry timeEntry) {
++        TimeEntry updatedTimeEntry = timeEntriesRepo.update(id, timeEntry);
++        if (updatedTimeEntry != null) {
++            return new ResponseEntity<>(updatedTimeEntry, HttpStatus.OK);
++        } else {
++            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
++        }
++    }
++
++    @DeleteMapping("{id}")
++    public ResponseEntity<TimeEntry> delete(@PathVariable Long id) {
++        timeEntriesRepo.delete(id);
++
++        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
++    }
++}
+diff --git a/src/main/java/io/pivotal/pal/tracker/TimeEntryRepository.java b/src/main/java/io/pivotal/pal/tracker/TimeEntryRepository.java
+new file mode 100644
+index 0000000..f106aa2
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/TimeEntryRepository.java
+@@ -0,0 +1,11 @@
++package io.pivotal.pal.tracker;
++
++import java.util.List;
++
++public interface TimeEntryRepository {
++    TimeEntry create(TimeEntry timeEntry);
++    TimeEntry find(Long id);
++    List<TimeEntry> list();
++    TimeEntry update(Long id, TimeEntry timeEntry);
++    void delete(Long id);
++}
+-- 
+2.12.3
+

@@ -1,0 +1,244 @@
+From a0de198d36efd6188f45a367fa5f742832f03a1c Mon Sep 17 00:00:00 2001
+From: Tyson Gern <tgern@pivotal.io>
+Date: Wed, 26 Jul 2017 11:48:18 -0600
+Subject: [PATCH 12/16] Persist time entries in database
+
+---
+ build.gradle                                       | 21 ++++++
+ manifest.yml                                       |  2 +
+ .../pal/tracker/JdbcTimeEntryRepository.java       | 88 ++++++++++++++++++++++
+ .../pivotal/pal/tracker/PalTrackerApplication.java |  9 ++-
+ .../pivotal/pal/trackerapi/TimeEntryApiTest.java   | 15 ++++
+ 5 files changed, 133 insertions(+), 2 deletions(-)
+ create mode 100644 src/main/java/io/pivotal/pal/tracker/JdbcTimeEntryRepository.java
+
+diff --git a/build.gradle b/build.gradle
+index 8231572..e14e648 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -1,6 +1,9 @@
++import org.flywaydb.gradle.task.FlywayMigrateTask
++
+ plugins {
+     id "java"
+     id "org.springframework.boot" version "1.5.4.RELEASE"
++    id "org.flywaydb.flyway" version "4.2.0"
+ }
+ 
+ repositories {
+@@ -10,14 +13,32 @@ repositories {
+ dependencies {
+     compile("org.springframework.boot:spring-boot-starter-web")
+     compile("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.9.1")
++    compile("org.springframework.boot:spring-boot-starter-jdbc")
++
++    compile("mysql:mysql-connector-java:6.0.6")
+ 
+     testCompile("org.springframework.boot:spring-boot-starter-test")
+ }
+ 
++def developmentDbUrl = "jdbc:mysql://localhost:3306/tracker_dev?user=tracker&useSSL=false&useTimezone=true&serverTimezone=UTC&useLegacyDatetimeCode=false"
+ bootRun.environment([
+     "WELCOME_MESSAGE": "hello",
++    "SPRING_DATASOURCE_URL": developmentDbUrl,
+ ])
+ 
++def testDbUrl = "jdbc:mysql://localhost:3306/tracker_test?user=tracker&useSSL=false&useTimezone=true&serverTimezone=UTC&useLegacyDatetimeCode=false"
+ test.environment([
+     "WELCOME_MESSAGE": "Hello from test",
++    "SPRING_DATASOURCE_URL": testDbUrl,
+ ])
++
++flyway {
++    url = developmentDbUrl
++    user = "tracker"
++    password = ""
++    locations = ["filesystem:databases/tracker/migrations"]
++}
++
++task testMigrate(type: FlywayMigrateTask) {
++    url = testDbUrl
++}
+diff --git a/manifest.yml b/manifest.yml
+index 8cd6431..f29cbbe 100644
+--- a/manifest.yml
++++ b/manifest.yml
+@@ -4,5 +4,7 @@ applications:
+   path: build/libs/pal-tracker.jar
+   routes:
+   - route: pal-tracker-pietro-sampsonite.apps.chicken.pal.pivotal.io
++  services:
++  - tracker-database
+   env:
+     WELCOME_MESSAGE: Hello from the review environment
+diff --git a/src/main/java/io/pivotal/pal/tracker/JdbcTimeEntryRepository.java b/src/main/java/io/pivotal/pal/tracker/JdbcTimeEntryRepository.java
+new file mode 100644
+index 0000000..2cbb2e3
+--- /dev/null
++++ b/src/main/java/io/pivotal/pal/tracker/JdbcTimeEntryRepository.java
+@@ -0,0 +1,88 @@
++package io.pivotal.pal.tracker;
++
++import org.springframework.jdbc.core.JdbcTemplate;
++import org.springframework.jdbc.core.ResultSetExtractor;
++import org.springframework.jdbc.core.RowMapper;
++import org.springframework.jdbc.support.GeneratedKeyHolder;
++import org.springframework.jdbc.support.KeyHolder;
++
++import javax.sql.DataSource;
++import java.sql.Date;
++import java.sql.PreparedStatement;
++import java.util.List;
++
++import static java.sql.Statement.RETURN_GENERATED_KEYS;
++
++public class JdbcTimeEntryRepository implements TimeEntryRepository {
++
++    private final JdbcTemplate jdbcTemplate;
++
++    public JdbcTimeEntryRepository(DataSource dataSource) {
++        this.jdbcTemplate = new JdbcTemplate(dataSource);
++    }
++
++    @Override
++    public TimeEntry create(TimeEntry timeEntry) {
++        KeyHolder generatedKeyHolder = new GeneratedKeyHolder();
++
++        jdbcTemplate.update(connection -> {
++            PreparedStatement statement = connection.prepareStatement(
++                "INSERT INTO time_entries (project_id, user_id, date, hours) " +
++                    "VALUES (?, ?, ?, ?)",
++                RETURN_GENERATED_KEYS
++            );
++
++            statement.setLong(1, timeEntry.getProjectId());
++            statement.setLong(2, timeEntry.getUserId());
++            statement.setDate(3, Date.valueOf(timeEntry.getDate()));
++            statement.setInt(4, timeEntry.getHours());
++
++            return statement;
++        }, generatedKeyHolder);
++
++        return find(generatedKeyHolder.getKey().longValue());
++    }
++
++    @Override
++    public TimeEntry find(Long id) {
++        return jdbcTemplate.query(
++            "SELECT id, project_id, user_id, date, hours FROM time_entries WHERE id = ?",
++            new Object[]{id},
++            extractor);
++    }
++
++    @Override
++    public List<TimeEntry> list() {
++        return jdbcTemplate.query("SELECT id, project_id, user_id, date, hours FROM time_entries", mapper);
++    }
++
++    @Override
++    public TimeEntry update(Long id, TimeEntry timeEntry) {
++        jdbcTemplate.update("UPDATE time_entries " +
++                "SET project_id = ?, user_id = ?, date = ?,  hours = ? " +
++                "WHERE id = ?",
++            timeEntry.getProjectId(),
++            timeEntry.getUserId(),
++            Date.valueOf(timeEntry.getDate()),
++            timeEntry.getHours(),
++            id);
++
++        return find(id);
++    }
++
++    @Override
++    public void delete(Long id) {
++        jdbcTemplate.update("DELETE FROM time_entries WHERE id = ?", id);
++    }
++
++    private final RowMapper<TimeEntry> mapper = (rs, rowNum) -> new TimeEntry(
++        rs.getLong("id"),
++        rs.getLong("project_id"),
++        rs.getLong("user_id"),
++        rs.getDate("date").toLocalDate(),
++        rs.getInt("hours")
++    );
++
++    private final ResultSetExtractor<TimeEntry> extractor =
++        (rs) -> rs.next() ? mapper.mapRow(rs, 1) : null;
++}
+diff --git a/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java b/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
+index 39c559a..d2c7aeb 100644
+--- a/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
++++ b/src/main/java/io/pivotal/pal/tracker/PalTrackerApplication.java
+@@ -9,16 +9,21 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+ 
++import javax.sql.DataSource;
++import java.util.TimeZone;
++
+ @SpringBootApplication
+ public class PalTrackerApplication {
+ 
+     public static void main(String[] args) {
++        // Make sure the application runs as UTC
++        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+         SpringApplication.run(PalTrackerApplication.class, args);
+     }
+ 
+     @Bean
+-    TimeEntryRepository timeEntryRepository() {
+-        return new InMemoryTimeEntryRepository();
++    TimeEntryRepository timeEntryRepository(DataSource dataSource) {
++        return new JdbcTimeEntryRepository(dataSource);
+     }
+ 
+     @Bean
+diff --git a/src/test/java/test/pivotal/pal/trackerapi/TimeEntryApiTest.java b/src/test/java/test/pivotal/pal/trackerapi/TimeEntryApiTest.java
+index 69c2c0b..1843318 100644
+--- a/src/test/java/test/pivotal/pal/trackerapi/TimeEntryApiTest.java
++++ b/src/test/java/test/pivotal/pal/trackerapi/TimeEntryApiTest.java
+@@ -1,8 +1,10 @@
+ package test.pivotal.pal.trackerapi;
+ 
+ import com.jayway.jsonpath.DocumentContext;
++import com.mysql.cj.jdbc.MysqlDataSource;
+ import io.pivotal.pal.tracker.PalTrackerApplication;
+ import io.pivotal.pal.tracker.TimeEntry;
++import org.junit.Before;
+ import org.junit.Test;
+ import org.junit.runner.RunWith;
+ import org.springframework.beans.factory.annotation.Autowired;
+@@ -12,10 +14,12 @@ import org.springframework.http.HttpEntity;
+ import org.springframework.http.HttpMethod;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.http.ResponseEntity;
++import org.springframework.jdbc.core.JdbcTemplate;
+ import org.springframework.test.context.junit4.SpringRunner;
+ 
+ import java.time.LocalDate;
+ import java.util.Collection;
++import java.util.TimeZone;
+ 
+ import static com.jayway.jsonpath.JsonPath.parse;
+ import static org.assertj.core.api.Assertions.assertThat;
+@@ -32,6 +36,17 @@ public class TimeEntryApiTest {
+     private final long userId = 456L;
+     private TimeEntry timeEntry = new TimeEntry(projectId, userId, LocalDate.parse("2017-01-08"), 8);
+ 
++    @Before
++    public void setUp() throws Exception {
++        MysqlDataSource dataSource = new MysqlDataSource();
++        dataSource.setUrl(System.getenv("SPRING_DATASOURCE_URL"));
++
++        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
++        jdbcTemplate.execute("TRUNCATE time_entries");
++
++        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
++    }
++
+     @Test
+     public void testCreate() throws Exception {
+         ResponseEntity<String> createResponse = restTemplate.postForEntity("/time-entries", timeEntry, String.class);
+-- 
+2.12.3
+
