@@ -15,10 +15,7 @@ jobs:
       - name: bash provide rights
         shell: bash
         run: chmod +x gradlew
-             sed $'s/\r$//' ./install.sh > ./install.Unix.sh
-
-
-
+        
       - name: Build with Gradle
         shell: bash
         run: ./gradlew build
