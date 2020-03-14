@@ -16,5 +16,7 @@ jobs:
         run: /bin/bash/ chmod +x gradlew
              sed $'s/\r$//' ./install.sh > ./install.Unix.sh
 
+
+
       - name: Build with Gradle
-        run: /bin/bash ./gradlew build
+        run: ./gradlew build
