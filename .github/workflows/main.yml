@@ -2,7 +2,7 @@ name: Pal Tracker Pipeline
 
 on:
   push:
-    branches: [master]
+    branches: [health-monitoring]
 
 jobs:
   build-and-publish:
@@ -16,7 +16,7 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
     - name: Build with Gradle
-      run: ./gradlew build
+      run:  gradlew build
     - name: Publish artifact
       uses: actions/upload-artifact@v1
       with:
